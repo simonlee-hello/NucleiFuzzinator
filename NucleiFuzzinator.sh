@@ -87,7 +87,7 @@ run_katana() {
         return 1
     fi
     katana -silent -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
-    cat "$katana_result" | anew "$url_file"
+    cat "$katana_result" | uro | anew "$url_file"
     line_count=$(wc -l < "$url_file" | awk '{print $1}')
     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
 }
@@ -96,7 +96,7 @@ run_katana() {
 run_nuclei() {
     local url_file="$1"
     echo "更新Nuclei templates"
-    nuclei -ut
+    nuclei -ut -up -silent
     echo "正在对收集到的 URL 运行Nuclei"
     echo -e "Nuclei_command : ${GREEN}cat $url_file | $nuclei_command ${RESET}"
     cat "$url_file" | $nuclei_command || exit 1
