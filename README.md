@@ -1,0 +1,2 @@
+# NucleiFuzzinator
+NucleiFuzzinator是一个自动化工具,用于收集指定域名或域名文件中的URL,并通过Nuclei进行全面的Web应用漏洞扫描。
