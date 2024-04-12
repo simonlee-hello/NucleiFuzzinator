@@ -11,7 +11,7 @@ RESET='\033[0m'
 
 # 显示帮助菜单的函数
 display_help() {
-    echo -e "NucleiFuzzinator是一个自动化工具,用于收集指定域名或域名文件中的URL,并通过Nuclei进行全面的Web应用漏洞扫描。\n"
+    echo -e "NucleiFuzzinator是一个自动化工具,用于收集指定域名或域名文件,并通过Nuclei进行全面的Web应用漏洞扫描。\n"
     echo -e "使用方法: $0 [选项]\n\n"
     echo "选项:"
     echo "  -h, --help                      显示帮助信息"
