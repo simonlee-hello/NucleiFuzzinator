@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # 测试
-# set -xeuo pipefail
+set -xeuo pipefail
 
 # ANSI颜色代码
 RED='\033[91m'
@@ -40,9 +40,9 @@ check_go_env(){
     if ! command -v go &> /dev/null; then
         echo "未找到 Go，请先安装 Go 并设置相应的环境变量。"
         echo "安装完成后请手动设置以下环境变量："
-        echo "  - GOROOT: 指向 Go 的安装目录 export GOROOT=$HOME/go export PATH=$GOROOT/bin:$PATH"
-        echo "  - GOPATH: 指向您的 Go 工作目录 export GOPATH=$HOME/gopath/go export PATH=$GOPATH/bin:$PATH"
-        echo "  - GOMODCACHE: 指向您的 Go 工作目录 export GOMODCACHE=$HOME/go/pkg/mod"
+        echo "  - GOROOT: 指向 Go 的安装目录 export GOROOT=\$HOME/go export PATH=\$GOROOT/bin:\$PATH"
+        echo "  - GOPATH: 指向您的 Go 工作目录 export GOPATH=\$HOME/gopath/go export PATH=\$GOPATH/bin:\$PATH"
+        echo "  - GOMODCACHE: 指向您的 Go 工作目录 export GOMODCACHE=\$HOME/go/pkg/mod"
         exit 1
     fi
 }
@@ -57,11 +57,12 @@ check_command() {
 
 # 运行httpx的函数
 run_httpx() {
-    local url_file="$1"
+    local gau_result="$1"
+    local url_file="$2"
     local line_count
     local httpx_command="httpx $proxy_arg $httpx_args"
     echo "正在对收集到的 URL 进行 httpx 探活..."
-    cat "$url_file" | $httpx_command -o "$url_file" || exit 1
+    cat "$gau_result" | $httpx_command -o "$url_file" || exit 1
     line_count=$(wc -l < "$url_file" | awk '{print $1}')
     echo -e "${GREEN}httpx 执行完成。找到 $line_count 个活跃的 URL。${RESET}"
 }
@@ -85,7 +86,8 @@ run_katana() {
         echo -e "${RED}警告：$subfinder_alive_urls_file 文件为空。跳过执行 katana 命令。${RESET}"
         return 1
     fi
-    katana -silent -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions | anew "$url_file"
+    katana -silent -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+    cat "$katana_result" | anew "$url_file"
     line_count=$(wc -l < "$url_file" | awk '{print $1}')
     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
 }
@@ -93,8 +95,10 @@ run_katana() {
 # 运行nuclei的函数
 run_nuclei() {
     local url_file="$1"
+    echo "更新Nuclei templates"
+    nuclei -ut
     echo "正在对收集到的 URL 运行Nuclei"
-    echo -e "${GREEN}Nuclei_command : $nuclei_command ${RESET}"
+    echo -e "Nuclei_command : ${GREEN}cat $url_file | $nuclei_command ${RESET}"
     cat "$url_file" | $nuclei_command || exit 1
 }
 
@@ -160,13 +164,17 @@ if [ -n "$domain" ]; then
     fi
     output_domain_file="$project/$domain.txt"
 else
-    output_all_file="$project/allurls.txt"
     # 检查是否提供了项目名称
     if [ -z "$project" ]; then
         project="output"
     fi
+    output_all_file="$project/allurls.txt"
+
+
 fi
 
+gau_result="$project/gau_result.txt"
+katana_result="$project/katana_result.txt"
 nuclei_fuzzing_output_file="$project/nuclei_fuzzing_results_$(date +%Y%m%d%H%M%S).txt"
 subfinder_domains_file="$project/subfinder_urls.txt"
 subfinder_alive_urls_file="$project/subfinder_alive_urls.txt"
@@ -179,18 +187,18 @@ fi
 
 # 检查是否已运行gau 并创建了输出文件
 if [ -n "$domain" ]; then
-    if [ ! -f "$output_domain_file" ]; then
+    if [ ! -f "$gau_result" ]; then
         echo "正在对 $domain 运行gau"
         gau_args="--blacklist $excluded_extentions --subs"
         [ -n "$proxy" ] && gau_args+=" --proxy $proxy"
-        gau $gau_args $domain | uro > "$output_domain_file" || exit 1
+        gau $gau_args $domain | uro > "$gau_result" || exit 1
     fi
 else
-    if [ ! -f "$output_all_file" ]; then
+    if [ ! -f "$gau_result" ]; then
         echo "正在对 $filename 中的 URL 运行gau"
         gau_args="--blacklist $excluded_extentions --subs"
         [ -n "$proxy" ] && gau_args+=" --proxy $proxy"
-        cat "$filename" | gau $gau_args | uro > "$output_all_file" || exit 1
+        cat "$filename" | gau $gau_args | uro > "$gau_result" || exit 1
     fi
 fi
 
@@ -201,7 +209,11 @@ else
     url_file="$output_all_file"
 fi
 
-run_httpx "$url_file"
+if [ ! -f "$url_file" ]; then
+    run_httpx "$gau_result" "$url_file"
+else
+    echo "$gau_result 已存在,跳过httpx探活"
+fi
 
 # 运行subfinder 函数
 # 定义 subfinder_command 变量，根据提供的域名或文件进行选择
@@ -211,25 +223,38 @@ elif [ -n "$filename" ]; then
     subfinder_command="subfinder -dL $filename -all -silent -o $subfinder_domains_file"
 fi
 
-run_subfinder
+if [ ! -f "$subfinder_domains_file" ]; then
+    run_subfinder
+else
+    echo "$subfinder_domains_file 已存在,跳过subfinder子域名收集"
+fi
 
 # 运行httpx 在收集到的子域上
 if [ ! -f "$subfinder_domains_file" ]; then
     echo -e "${RED} 警告：$subfinder_domains_file 文件不存在。跳过运行httpx 命令。${RESET}"
 else
-    echo "正在对收集到的子域运行httpx"
-    httpx -l "$subfinder_domains_file" -ports=80,443,8080,8443,8000,8888 $httpx_args -o "$subfinder_alive_urls_file" || exit 1
-    line_count=$(wc -l < "$subfinder_alive_urls_file" | awk '{print $1}')
-    echo -e "${GREEN}Httpx 探活子域执行完成。找到 $line_count 个活跃的 URL。${RESET}"
+    if [ ! -f "$subfinder_alive_urls_file" ]; then
+        echo "正在对收集到的子域运行httpx"
+        httpx -l "$subfinder_domains_file" -ports=80,443,8080,8443,8000,8888 $httpx_args -o "$subfinder_alive_urls_file" || exit 1
+        line_count=$(wc -l < "$subfinder_alive_urls_file" | awk '{print $1}')
+        echo -e "${GREEN}Httpx 探活子域执行完成。找到 $line_count 个活跃的 URL。${RESET}"
+    else
+        echo "$subfinder_alive_urls_file 已存在,跳过子域名httpx探活。"
+    fi
 fi
 
 # 运行katana 函数
-run_katana "$subfinder_alive_urls_file" "$url_file"
-
+if [ ! -f "$katana_result" ]; then
+    run_katana "$subfinder_alive_urls_file" "$url_file"
+else
+    echo "$katana_result 已存在,跳过katana爬虫。"
+fi
 # 提取所有URL，方便做其他扫描
-sed -E 's#^(https?://[^/]+).*#\1#' "$url_file" | sort -u | tee "$project/websites.txt"
-line_count=$(wc -l < "$project/websites.txt" | awk '{print $1}')
-echo -e "${GREEN}所有存活websites已提取成功。共 $line_count 个website。\nnuclei完整扫描命令：${RED}nuclei -l $project/websites.txt -nh -es info -et ssl,dns -p $proxy -o $project/nuclei_full_results_$(date +%Y%m%d%H%M%S).txt ${RESET} ${RESET}"
+if [ ! -f "$project/websites.txt" ]; then
+    sed -E 's#^(https?://[^/]+).*#\1#' "$url_file" | sort -u | tee "$project/websites.txt"
+    line_count=$(wc -l < "$project/websites.txt" | awk '{print $1}')
+    echo -e "${GREEN}所有存活websites已提取成功。共 $line_count 个website。\nnuclei完整扫描命令：${RED}nuclei -l $project/websites.txt -nh -es info -et ssl,dns -p $proxy -o $project/nuclei_full_results_$(date +%Y%m%d%H%M%S).txt ${RESET} ${RESET}"
+fi
 # 运行nuclei 函数
 # 定义 nuclei_command 变量
 nuclei_command="nuclei $proxy_arg $nuclei_fuzzing_args -o $nuclei_fuzzing_output_file"
