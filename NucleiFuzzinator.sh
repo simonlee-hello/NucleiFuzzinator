@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # 测试
-set -xeuo pipefail
+# set -xeuo pipefail
 
 # ANSI颜色代码
 RED='\033[91m'
