@@ -86,7 +86,7 @@ run_katana() {
         echo -e "${RED}警告：$subfinder_alive_urls_file 文件为空。跳过执行 katana 命令。${RESET}"
         return 1
     fi
-    katana -silent -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+    katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
     cat "$katana_result" | uro | anew "$url_file"
     line_count=$(wc -l < "$url_file" | awk '{print $1}')
     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
