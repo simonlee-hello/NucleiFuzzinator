@@ -47,11 +47,24 @@ check_go_env(){
     fi
 }
 
+check_pip3_env(){
+    if ! command -v pip3 &> /dev/null; then
+        echo "未找到 pip3，请先安装 pip3"
+        echo "  - curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py"
+        echo "  - python3 get-pip.py"
+        exit 1
+    fi
+}
+
 # 检查命令是否存在的函数
 check_command() {
     if ! command -v "$1" &> /dev/null; then
         echo "正在安装 $1..."
-        $2 || exit 1
+        # $2 || exit 1
+        if ! $2; then
+            echo "安装 $1 失败，请手动安装。"
+            exit 1
+        fi
     fi
 }
 
@@ -77,20 +90,53 @@ run_subfinder() {
 }
 
 # 运行katana的函数
+# run_katana() {
+#     local subfinder_alive_urls_file="$1"
+#     local url_file="$2"
+#     local line_count
+#     # 检查 $subfinder_alive_urls_file 是否包含 URL
+#     if [ ! -s "$subfinder_alive_urls_file" ]; then
+#         echo -e "${RED}警告：$subfinder_alive_urls_file 文件为空。跳过执行 katana 命令。${RESET}"
+#         return 1
+#     fi
+#     katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+#     cat "$katana_result" | uro | anew "$url_file"
+#     line_count=$(wc -l < "$url_file" | awk '{print $1}')
+#     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
+# }
+
 run_katana() {
     local subfinder_alive_urls_file="$1"
     local url_file="$2"
     local line_count
+
     # 检查 $subfinder_alive_urls_file 是否包含 URL
     if [ ! -s "$subfinder_alive_urls_file" ]; then
         echo -e "${RED}警告：$subfinder_alive_urls_file 文件为空。跳过执行 katana 命令。${RESET}"
         return 1
     fi
+
+    # 运行 katana 命令
     katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+    katana_exit_code=$?
+
+    # 检查 katana 是否报错
+    if [ $katana_exit_code -ne 0 ]; then
+        echo -e "${RED}katana 在 headless 模式下报错。尝试在非 headless 模式下运行。${RESET}"
+        katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+        katana_exit_code=$?
+        if [ $katana_exit_code -ne 0 ]; then
+            echo -e "${RED}katana 在非 headless 模式下仍然报错。请检查依赖和配置。${RESET}"
+            return 1
+        fi
+    fi
+
+    # 处理 katana 的结果
     cat "$katana_result" | uro | anew "$url_file"
     line_count=$(wc -l < "$url_file" | awk '{print $1}')
     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
 }
+
 
 # 运行nuclei的函数
 run_nuclei() {
@@ -113,13 +159,15 @@ output_domain_file=""
 output_all_file=""
 excluded_extentions="png,jpg,gif,jpeg,swf,woff,svg,pdf,json,css,js,webp,woff,woff2,eot,ttf,otf,mp4"
 httpx_args="-silent -mc 200,301,302 -threads 200"
-nuclei_fuzzing_args="-silent -dast -nh -rl 10"
+# nuclei_fuzzing_args="-silent -dast -nh -rl 10"
+nuclei_fuzzing_args="-dast -nh -rl 10"
 proxy_arg=""
 
 
 
 # 检查 gau、nuclei、httpx 和 uro 是否已安装
 check_go_env
+check_pip3_env
 check_command gau "go install github.com/lc/gau/v2/cmd/gau@latest"
 check_command subfinder "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
 check_command nuclei "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
