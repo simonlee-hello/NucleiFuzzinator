@@ -71,12 +71,12 @@ check_command() {
 # 运行httpx的函数
 run_httpx() {
     local gau_result="$1"
-    local url_file="$2"
+    local gau_alive_result="$2"
     local line_count
     local httpx_command="httpx $proxy_arg $httpx_args"
     echo "正在对收集到的 URL 进行 httpx 探活..."
-    cat "$gau_result" | $httpx_command -o "$url_file" || exit 1
-    line_count=$(wc -l < "$url_file" | awk '{print $1}')
+    cat "$gau_result" | $httpx_command -o "$gau_alive_result" > /dev/null || exit 1
+    line_count=$(wc -l < "$gau_alive_result" | awk '{print $1}')
     echo -e "${GREEN}httpx 执行完成。找到 $line_count 个活跃的 URL。${RESET}"
 }
 
@@ -84,30 +84,15 @@ run_httpx() {
 run_subfinder() {
     local line_count
     echo "正在使用 Subfinder 查找子域..."
-    $subfinder_command || exit 1
+    $subfinder_command > /dev/null || exit 1
     line_count=$(wc -l < "$subfinder_domains_file" | awk '{print $1}')
     echo -e "${GREEN}subfinder 执行完成。找到 $line_count 个子域。${RESET}"
 }
 
-# 运行katana的函数
-# run_katana() {
-#     local subfinder_alive_urls_file="$1"
-#     local url_file="$2"
-#     local line_count
-#     # 检查 $subfinder_alive_urls_file 是否包含 URL
-#     if [ ! -s "$subfinder_alive_urls_file" ]; then
-#         echo -e "${RED}警告：$subfinder_alive_urls_file 文件为空。跳过执行 katana 命令。${RESET}"
-#         return 1
-#     fi
-#     katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
-#     cat "$katana_result" | uro | anew "$url_file"
-#     line_count=$(wc -l < "$url_file" | awk '{print $1}')
-#     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
-# }
 
 run_katana() {
     local subfinder_alive_urls_file="$1"
-    local url_file="$2"
+#    local url_file="$2"
     local line_count
 
     # 检查 $subfinder_alive_urls_file 是否包含 URL
@@ -117,13 +102,13 @@ run_katana() {
     fi
 
     # 运行 katana 命令
-    katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+    katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -headless -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result" > /dev/null
     katana_exit_code=$?
 
     # 检查 katana 是否报错
     if [ $katana_exit_code -ne 0 ]; then
         echo -e "${RED}katana 在 headless 模式下报错。尝试在非 headless 模式下运行。${RESET}"
-        katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result"
+        katana -silent $proxy_arg -list "$subfinder_alive_urls_file" -no-incognito -xhr -d 5 -jc -aff -ef $excluded_extentions -o "$katana_result" > /dev/null
         katana_exit_code=$?
         if [ $katana_exit_code -ne 0 ]; then
             echo -e "${RED}katana 在非 headless 模式下仍然报错。请检查依赖和配置。${RESET}"
@@ -132,8 +117,9 @@ run_katana() {
     fi
 
     # 处理 katana 的结果
-    cat "$katana_result" | uro | anew "$url_file"
-    line_count=$(wc -l < "$url_file" | awk '{print $1}')
+#    cat "$katana_result" | uro | anew "$url_file"
+#    line_count=$(wc -l < "$url_file" | awk '{print $1}')
+    line_count=$(wc -l < "$katana_result" | awk '{print $1}')
     echo -e "${GREEN}katana 执行完成。总共找到 $line_count 个活跃的 URL。${RESET}"
 }
 
@@ -155,10 +141,9 @@ filename=""
 project=""
 
 # 默认变量值
-output_domain_file=""
-output_all_file=""
+url_file=""
 excluded_extentions="png,jpg,gif,jpeg,swf,woff,svg,pdf,json,css,js,webp,woff,woff2,eot,ttf,otf,mp4"
-httpx_args="-silent -mc 200,301,302 -threads 200"
+httpx_args="-silent -mc 200 -threads 200"
 # nuclei_fuzzing_args="-silent -dast -nh -rl 10"
 nuclei_fuzzing_args="-dast -nh -rl 10"
 proxy_arg=""
@@ -210,18 +195,19 @@ if [ -n "$domain" ]; then
     if [ -z "$project" ]; then
         project=$domain
     fi
-    output_domain_file="$project/$domain.txt"
+    url_file="$project/$domain.txt"
 else
     # 检查是否提供了项目名称
     if [ -z "$project" ]; then
         project="output"
     fi
-    output_all_file="$project/allurls.txt"
+    url_file="$project/allurls.txt"
 
 
 fi
 
 gau_result="$project/gau_result.txt"
+gau_alive_result="$project/gau_alive_result.txt"
 katana_result="$project/katana_result.txt"
 nuclei_fuzzing_output_file="$project/nuclei_fuzzing_results_$(date +%Y%m%d%H%M%S).txt"
 subfinder_domains_file="$project/subfinder_urls.txt"
@@ -237,30 +223,30 @@ fi
 if [ -n "$domain" ]; then
     if [ ! -f "$gau_result" ]; then
         echo "正在对 $domain 运行gau"
-        gau_args="--blacklist $excluded_extentions --subs"
+        gau_args="--blacklist $excluded_extentions --subs --threads 10"
         [ -n "$proxy" ] && gau_args+=" --proxy $proxy"
-        gau $gau_args $domain | uro > "$gau_result" || exit 1
+#        gau $gau_args $domain | uro > "$gau_result" || exit 1
+        gau $gau_args $domain --o "$gau_result" || exit 1
     fi
 else
     if [ ! -f "$gau_result" ]; then
         echo "正在对 $filename 中的 URL 运行gau"
-        gau_args="--blacklist $excluded_extentions --subs"
+        gau_args="--blacklist $excluded_extentions --subs --threads 10"
         [ -n "$proxy" ] && gau_args+=" --proxy $proxy"
-        cat "$filename" | gau $gau_args | uro > "$gau_result" || exit 1
+#        cat "$filename" | gau $gau_args | uro > "$gau_result" || exit 1
+        cat "$filename" | gau $gau_args --o "$gau_result" || exit 1
     fi
 fi
 
-# 运行httpx 函数
-if [ -n "$domain" ]; then
-    url_file="$output_domain_file"
-else
-    url_file="$output_all_file"
-fi
+line_count=$(wc -l < "$gau_result" | awk '{print $1}')
+echo -e "${GREEN}gau 执行完成。找到 $line_count 个活跃的 URL。${RESET}"
 
-if [ ! -f "$url_file" ]; then
-    run_httpx "$gau_result" "$url_file"
+# 运行httpx 函数
+
+if [ ! -f "$gau_alive_result" ]; then
+    run_httpx "$gau_result" "$gau_alive_result"
 else
-    echo "$gau_result 已存在,跳过httpx探活"
+    echo "$gau_alive_result 已存在,跳过httpx探活"
 fi
 
 # 运行subfinder 函数
@@ -283,7 +269,7 @@ if [ ! -f "$subfinder_domains_file" ]; then
 else
     if [ ! -f "$subfinder_alive_urls_file" ]; then
         echo "正在对收集到的子域运行httpx"
-        httpx -l "$subfinder_domains_file" -ports=80,443,8080,8443,8000,8888 $httpx_args -o "$subfinder_alive_urls_file" || exit 1
+        httpx -l "$subfinder_domains_file" -ports=80,https:443,8080,https:8443,8000,8888 $httpx_args -o "$subfinder_alive_urls_file" > /dev/null || exit 1
         line_count=$(wc -l < "$subfinder_alive_urls_file" | awk '{print $1}')
         echo -e "${GREEN}Httpx 探活子域执行完成。找到 $line_count 个活跃的 URL。${RESET}"
     else
@@ -293,13 +279,28 @@ fi
 
 # 运行katana 函数
 if [ ! -f "$katana_result" ]; then
-    run_katana "$subfinder_alive_urls_file" "$url_file"
+    run_katana "$subfinder_alive_urls_file"
 else
     echo "$katana_result 已存在,跳过katana爬虫。"
 fi
+
+# 去重URL
+if [ -f "$katana_result" ] && [ -f "$gau_alive_result" ]; then
+    cat "$katana_result" "$gau_alive_result" | uro | anew "$url_file" > /dev/null
+elif [ -f "$katana_result" ]; then
+    cat "$katana_result" | uro | anew "$url_file" > /dev/null
+elif [ -f "$gau_alive_result" ]; then
+    cat "$gau_alive_result" | uro | anew "$url_file" > /dev/null
+else
+    echo "Neither $katana_result nor $gau_alive_result exists."
+    exit 1
+fi
+line_count=$(wc -l < "$url_file" | awk '{print $1}')
+echo -e "${GREEN}URL去重完成。总共找到 $line_count 个活跃的 URL。${RESET}"
+
 # 提取所有URL，方便做其他扫描
 if [ ! -f "$project/websites.txt" ]; then
-    sed -E 's#^(https?://[^/]+).*#\1#' "$url_file" | sort -u | tee "$project/websites.txt"
+    sed -E 's#^(https?://[^/]+).*#\1#' "$url_file" | sort -u | tee "$project/websites.txt" > /dev/null
     line_count=$(wc -l < "$project/websites.txt" | awk '{print $1}')
     echo -e "${GREEN}所有存活websites已提取成功。共 $line_count 个website。\nnuclei完整扫描命令：${RED}nuclei -l $project/websites.txt -nh -es info -et ssl,dns -p $proxy -o $project/nuclei_full_results_$(date +%Y%m%d%H%M%S).txt ${RESET} ${RESET}"
 fi
